@@ -18,7 +18,7 @@ const (
 	port     = "8080"
 	dir      = "/files"
 	authfile = "/auth"
-	urlfmt   = "https://f.lieuwe.xyz/%s/%s"
+	urlfmt   = "https://f.lieuwe.xyz/vang/%s/%s"
 )
 
 var User string
@@ -28,16 +28,23 @@ var Pass string
 type Item struct {
 	ID   string
 	Name string
-	Size string
+	Size uint64
 	Date time.Time
 	URL  string
 }
 
+func (item Item) SizeString() string {
+	return humanize.Bytes(item.Size)
+}
+
+func (item Item) DateString() string {
+	return item.Date.Format("2006-01-02 15:04:05")
+}
+
 var itemMap map[string]Item
 
-func readItems(dir string, refresh bool) (map[string]Item, error) {
-	m := itemMap
-	if refresh {
+func readItems(dir string, m map[string]Item) (map[string]Item, error) {
+	if m == nil {
 		m = make(map[string]Item)
 	}
 
@@ -47,7 +54,7 @@ func readItems(dir string, refresh bool) (map[string]Item, error) {
 	}
 
 	for _, f := range items {
-		if strings.HasSuffix(f.Name(), "-fname") {
+		if strings.HasSuffix(f.Name(), "-fname") || f.Name() == "startid" {
 			continue
 		}
 
@@ -66,7 +73,7 @@ func readItems(dir string, refresh bool) (map[string]Item, error) {
 		m[id] = Item{
 			ID:   id,
 			Name: strings.TrimSpace(string(fname)),
-			Size: humanize.Bytes(uint64(f.Size())),
+			Size: uint64(f.Size()),
 			Date: f.ModTime(),
 			URL:  fmt.Sprintf(urlfmt, id, fname),
 		}
@@ -75,16 +82,14 @@ func readItems(dir string, refresh bool) (map[string]Item, error) {
 	return m, nil
 }
 
-func check(user, pass string) bool {
-	return User == user && Pass == pass
-}
-
 func root(w http.ResponseWriter, r *http.Request) {
 	if user, pass, ok := r.BasicAuth(); !ok {
+		w.Header().Add("WWW-Authenticate", "Basic")
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("auth required\n"))
 		return
-	} else if !check(user, pass) {
+	} else if User != user || Pass != pass {
+		w.Header().Add("WWW-Authenticate", "Basic")
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("incorrect user/pass\n"))
 		return
@@ -95,7 +100,7 @@ func root(w http.ResponseWriter, r *http.Request) {
 		items = append(items, v)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
-		return items[i].Date.Before(items[j].Date)
+		return items[j].Date.Before(items[i].Date)
 	})
 
 	const tpl = `
@@ -103,14 +108,31 @@ func root(w http.ResponseWriter, r *http.Request) {
 <html>
 	<head>
 		<meta charset="utf-8">
-		<title>gooid</title>
+		<title>lsgooi</title>
 		<style>
 			body {
 				font-family: monospace;
 			}
 
-			.file:not(:last-child) {
-				border-bottom: 1px black solid;
+			a {
+				color: black;
+				text-decoration: none;
+			}
+
+			.file {
+				border-bottom: 1px lightgray solid;
+				margin: 10px;
+				padding-bottom: 10px;
+				display: flex;
+			}
+
+			.fname {
+				width: 300px;
+				margin-right: 10px;
+			}
+
+			.size {
+				width: 100px;
 			}
 		</style>
 	</head>
@@ -119,8 +141,8 @@ func root(w http.ResponseWriter, r *http.Request) {
 			<a href="{{$v.URL}}">
 				<div class="file">
 					<div class="fname">{{$v.Name}}</div>
-					<div class="size">{{$v.Size}}</div>
-					<div class="date">{{$v.Date}}</div>
+					<div class="size">{{$v.SizeString}}</div>
+					<div class="date">{{$v.DateString}}</div>
 				</div>
 			</a>
 		{{end}}
@@ -138,11 +160,23 @@ func root(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	var err error
-	itemMap, err = readItems(dir, true)
-	if err != nil {
-		panic(err)
-	}
+	go func() {
+		prev := 0
+		for {
+			var err error
+
+			itemMap, err = readItems(dir, itemMap)
+			if err != nil {
+				panic(err)
+			}
+			if l := len(itemMap); l != prev {
+				log.Printf("read %d file(s)", l)
+				prev = l
+			}
+
+			time.Sleep(10 * time.Second)
+		}
+	}()
 
 	auth, err := ioutil.ReadFile(authfile)
 	if err != nil {
@@ -157,8 +191,6 @@ func main() {
 			Pass = line
 		}
 	}
-
-	log.Printf("read %d file(s)", len(itemMap))
 
 	http.HandleFunc("/", root)
 

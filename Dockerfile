@@ -1,22 +1,15 @@
-FROM golang:1.11.4-alpine AS builder
+FROM golang:1.11.4-alpine
 
-# Install dep
-RUN apk update && apk add git
+# Install deps
+RUN apk update && apk add git tzdata
 RUN go get -u github.com/golang/dep/cmd/dep
 
 # Install dependencies
-COPY Gopkg.lock Gopkg.toml /go/src/stream-downloader/
-WORKDIR /go/src/stream-downloader/
+COPY Gopkg.lock Gopkg.toml /go/src/lsgooi/
+WORKDIR /go/src/lsgooi/
 RUN dep ensure -vendor-only
 
 COPY . .
-RUN go build -o /bin/gooid
+RUN go build -o /bin/lsgooi
 
-#####
-
-FROM scratch AS runner
-
-# Copy gooid
-COPY --from=builder /bin/gooid /bin/gooid
-
-CMD ["/bin/gooid"]
+CMD ["/bin/lsgooi"]
