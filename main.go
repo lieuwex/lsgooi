@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -21,9 +22,6 @@ const (
 	urlfmt   = "https://f.lieuwe.xyz/vang/%s/%s"
 )
 
-var User string
-var Pass string
-
 // Item represents an gooid item on disk.
 type Item struct {
 	ID   string
@@ -33,26 +31,37 @@ type Item struct {
 	URL  string
 }
 
+// SizeString returns the size of the current item in a human friendly format.
 func (item Item) SizeString() string {
 	return humanize.Bytes(item.Size)
 }
 
+// DateString returns the modification date of the current item in a human and
+// machine friendly format.
 func (item Item) DateString() string {
 	return item.Date.Format("2006-01-02 15:04:05")
 }
 
-var itemMap map[string]Item
+var (
+	// tpl contains the current compiled version of the page.
+	tpl []byte
 
-func readItems(dir string, m map[string]Item) (map[string]Item, error) {
-	if m == nil {
-		m = make(map[string]Item)
-	}
+	// correctUser is the correct username of the user.
+	correctUser string
+	// correctPass is the correct password of the user.
+	correctPass string
+)
 
+// readItems reads the given gooi files directory for items, if prev is non-nil
+// it will be used as a cache for existing files. If a file is removed from the
+// directory it isn't included in the result, even if prev does contain it.
+func readItems(dir string, prev map[string]Item) (map[string]Item, error) {
 	items, err := ioutil.ReadDir(dir)
 	if err != nil {
-		return m, err
+		return nil, err
 	}
 
+	m := make(map[string]Item)
 	for _, f := range items {
 		if strings.HasSuffix(f.Name(), "-fname") || f.Name() == "startid" {
 			continue
@@ -60,12 +69,12 @@ func readItems(dir string, m map[string]Item) (map[string]Item, error) {
 
 		id := f.Name()
 
-		if _, has := m[id]; has {
+		if val, has := prev[id]; has {
+			m[id] = val
 			continue
 		}
 
-		p := path.Join(dir, id+"-fname")
-		fname, err := ioutil.ReadFile(p)
+		fname, err := ioutil.ReadFile(path.Join(dir, id+"-fname"))
 		if err != nil {
 			return m, err
 		}
@@ -78,25 +87,18 @@ func readItems(dir string, m map[string]Item) (map[string]Item, error) {
 			URL:  fmt.Sprintf(urlfmt, id, fname),
 		}
 	}
-
 	return m, nil
 }
 
-func root(w http.ResponseWriter, r *http.Request) {
-	if user, pass, ok := r.BasicAuth(); !ok {
-		w.Header().Add("WWW-Authenticate", "Basic")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("auth required\n"))
-		return
-	} else if User != user || Pass != pass {
-		w.Header().Add("WWW-Authenticate", "Basic")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("incorrect user/pass\n"))
-		return
-	}
+func authErr(w http.ResponseWriter, err string) {
+	w.Header().Add("WWW-Authenticate", "Basic")
+	w.WriteHeader(http.StatusUnauthorized)
+	w.Write([]byte(err + "\n"))
+}
 
-	items := make([]Item, 0, len(itemMap))
-	for _, v := range itemMap {
+func compileTemplate(m map[string]Item) ([]byte, error) {
+	items := make([]Item, 0, len(m))
+	for _, v := range m {
 		items = append(items, v)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -151,17 +153,34 @@ func root(w http.ResponseWriter, r *http.Request) {
 
 	t, err := template.New("webpage").Parse(tpl)
 	if err != nil {
-		panic(err)
+		return []byte{}, err
 	}
 
-	if err := t.Execute(w, items); err != nil {
-		panic(err)
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, items); err != nil {
+		return []byte{}, err
 	}
+	return buf.Bytes(), nil
+}
+
+func root(w http.ResponseWriter, r *http.Request) {
+	if user, pass, ok := r.BasicAuth(); !ok {
+		authErr(w, "auth required")
+		return
+	} else if correctUser != user || correctPass != pass {
+		authErr(w, "incorrect user/pass")
+		return
+	}
+
+	w.Write(tpl)
 }
 
 func main() {
+	// update loop
 	go func() {
 		prev := 0
+		var itemMap map[string]Item
+
 		for {
 			var err error
 
@@ -174,26 +193,26 @@ func main() {
 				prev = l
 			}
 
+			tpl, err = compileTemplate(itemMap)
+			if err != nil {
+				panic(err)
+			}
+
 			time.Sleep(10 * time.Second)
 		}
 	}()
 
+	// read auth information
 	auth, err := ioutil.ReadFile(authfile)
 	if err != nil {
 		panic(err)
 	}
-	for i, line := range strings.Split(string(auth), "\n") {
-		line = strings.TrimSpace(line)
-		switch i {
-		case 0:
-			User = line
-		case 1:
-			Pass = line
-		}
-	}
+	lines := strings.Split(string(auth), "\n")
+	correctUser = strings.TrimSpace(lines[0])
+	correctPass = strings.TrimSpace(lines[1])
 
+	// set http handlers
 	http.HandleFunc("/", root)
-
 	log.Printf("listening on %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
