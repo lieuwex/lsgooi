@@ -187,15 +187,14 @@ func main() {
 			itemMap, err = readItems(dir, itemMap)
 			if err != nil {
 				panic(err)
-			}
-			if l := len(itemMap); l != prev {
+			} else if l := len(itemMap); l != prev {
 				log.Printf("read %d file(s)", l)
-				prev = l
-			}
 
-			tpl, err = compileTemplate(itemMap)
-			if err != nil {
-				panic(err)
+				tpl, err = compileTemplate(itemMap)
+				if err != nil {
+					panic(err)
+				}
+				prev = l
 			}
 
 			time.Sleep(10 * time.Second)
