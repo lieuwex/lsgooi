@@ -131,6 +131,7 @@ func compileTemplate(m map[string]Item) ([]byte, error) {
 			.fname {
 				width: 300px;
 				margin-right: 10px;
+				word-break: break-all;
 			}
 
 			.size {
