@@ -121,8 +121,11 @@ func compileTemplate(m map[string]Item) ([]byte, error) {
 				text-decoration: none;
 			}
 
-			.file {
+			a:not(:last-child) > .file {
 				border-bottom: 1px lightgray solid;
+			}
+
+			.file {
 				margin: 10px;
 				padding-bottom: 10px;
 				display: flex;
