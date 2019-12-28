@@ -44,7 +44,9 @@ func (item Item) DateString() string {
 
 var (
 	// tpl contains the current compiled version of the page.
-	tpl []byte
+	tpl            []byte
+	lastUpdateTime = time.Unix(0, 0)
+	prevItemCount  = 0
 
 	// correctUser is the correct username of the user.
 	correctUser string
@@ -88,12 +90,6 @@ func readItems(dir string, prev map[string]Item) (map[string]Item, error) {
 		}
 	}
 	return m, nil
-}
-
-func authErr(w http.ResponseWriter, err string) {
-	w.Header().Add("WWW-Authenticate", "Basic")
-	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(err + "\n"))
 }
 
 func compileTemplate(m map[string]Item) ([]byte, error) {
@@ -167,6 +163,31 @@ func compileTemplate(m map[string]Item) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func updateTemplate() {
+	if time.Now().Sub(lastUpdateTime).Seconds() >= 10 {
+		var itemMap map[string]Item
+
+		itemMap, err := readItems(dir, itemMap)
+		if err != nil {
+			panic(err)
+		} else if l := len(itemMap); l != prevItemCount {
+			log.Printf("read %d file(s)", l)
+
+			tpl, err = compileTemplate(itemMap)
+			if err != nil {
+				panic(err)
+			}
+			prevItemCount = l
+		}
+	}
+}
+
+func authErr(w http.ResponseWriter, err string) {
+	w.Header().Add("WWW-Authenticate", "Basic")
+	w.WriteHeader(http.StatusUnauthorized)
+	w.Write([]byte(err + "\n"))
+}
+
 func root(w http.ResponseWriter, r *http.Request) {
 	if user, pass, ok := r.BasicAuth(); !ok {
 		authErr(w, "auth required")
@@ -176,35 +197,12 @@ func root(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	updateTemplate()
+
 	w.Write(tpl)
 }
 
 func main() {
-	// update loop
-	go func() {
-		prev := 0
-		var itemMap map[string]Item
-
-		for {
-			var err error
-
-			itemMap, err = readItems(dir, itemMap)
-			if err != nil {
-				panic(err)
-			} else if l := len(itemMap); l != prev {
-				log.Printf("read %d file(s)", l)
-
-				tpl, err = compileTemplate(itemMap)
-				if err != nil {
-					panic(err)
-				}
-				prev = l
-			}
-
-			time.Sleep(10 * time.Second)
-		}
-	}()
-
 	// read auth information
 	auth, err := ioutil.ReadFile(authfile)
 	if err != nil {
