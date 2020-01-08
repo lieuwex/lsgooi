@@ -182,36 +182,13 @@ func updateTemplate() {
 	}
 }
 
-func authErr(w http.ResponseWriter, err string) {
-	w.Header().Add("WWW-Authenticate", "Basic")
-	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(err + "\n"))
-}
-
 func root(w http.ResponseWriter, r *http.Request) {
-	if user, pass, ok := r.BasicAuth(); !ok {
-		authErr(w, "auth required")
-		return
-	} else if correctUser != user || correctPass != pass {
-		authErr(w, "incorrect user/pass")
-		return
-	}
-
 	updateTemplate()
 
 	w.Write(tpl)
 }
 
 func main() {
-	// read auth information
-	auth, err := ioutil.ReadFile(authfile)
-	if err != nil {
-		panic(err)
-	}
-	lines := strings.Split(string(auth), "\n")
-	correctUser = strings.TrimSpace(lines[0])
-	correctPass = strings.TrimSpace(lines[1])
-
 	// set http handlers
 	http.HandleFunc("/", root)
 	log.Printf("listening on %s", port)
