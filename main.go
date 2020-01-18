@@ -16,10 +16,9 @@ import (
 )
 
 const (
-	port     = "8080"
-	dir      = "/files"
-	authfile = "/auth"
-	urlfmt   = "https://f.lieuwe.xyz/vang/%s/%s"
+	port   = "8080"
+	dir    = "/files"
+	urlfmt = "https://f.lieuwe.xyz/vang/%s/%s"
 )
 
 // Item represents an gooid item on disk.
@@ -42,29 +41,19 @@ func (item Item) DateString() string {
 	return item.Date.Format("2006-01-02 15:04:05")
 }
 
-var (
-	// tpl contains the current compiled version of the page.
-	tpl            []byte
-	lastUpdateTime = time.Unix(0, 0)
-	prevItemCount  = 0
-
-	// correctUser is the correct username of the user.
-	correctUser string
-	// correctPass is the correct password of the user.
-	correctPass string
-)
+var state State
 
 // readItems reads the given gooi files directory for items, if prev is non-nil
 // it will be used as a cache for existing files. If a file is removed from the
 // directory it isn't included in the result, even if prev does contain it.
 func readItems(dir string, prev map[string]Item) (map[string]Item, error) {
-	items, err := ioutil.ReadDir(dir)
+	files, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
 	m := make(map[string]Item)
-	for _, f := range items {
+	for _, f := range files {
 		if strings.HasSuffix(f.Name(), "-fname") || f.Name() == "startid" {
 			continue
 		}
@@ -163,29 +152,36 @@ func compileTemplate(m map[string]Item) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// updateTemplate checks whether or not the template should be updated, and
+// updates if necessary.
 func updateTemplate() {
-	if time.Now().Sub(lastUpdateTime).Seconds() >= 10 {
-		var itemMap map[string]Item
+	if !state.MustCheck() {
+		return
+	}
 
-		itemMap, err := readItems(dir, itemMap)
+	itemMap, err := readItems(dir, state.itemMap)
+	if err != nil {
+		panic(err)
+	}
+
+	state.lastCheckTime = time.Now()
+
+	oldLen := len(state.itemMap)
+	newLen := len(itemMap)
+	if oldLen != newLen {
+		log.Printf("read %d new file(s)", newLen-oldLen)
+
+		state.itemMap = itemMap
+		state.tpl, err = compileTemplate(itemMap)
 		if err != nil {
 			panic(err)
-		} else if l := len(itemMap); l != prevItemCount {
-			log.Printf("read %d file(s)", l)
-
-			tpl, err = compileTemplate(itemMap)
-			if err != nil {
-				panic(err)
-			}
-			prevItemCount = l
 		}
 	}
 }
 
 func root(w http.ResponseWriter, r *http.Request) {
 	updateTemplate()
-
-	w.Write(tpl)
+	w.Write(state.tpl)
 }
 
 func main() {
