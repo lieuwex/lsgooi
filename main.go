@@ -101,19 +101,17 @@ func compileTemplate(m map[string]Item) ([]byte, error) {
 				font-family: monospace;
 			}
 
-			a {
-				color: black;
-				text-decoration: none;
-			}
-
-			a:not(:last-child) > .file {
-				border-bottom: 1px lightgray solid;
-			}
-
 			.file {
 				margin: 10px;
 				padding-bottom: 10px;
 				display: flex;
+
+				color: black;
+				text-decoration: none;
+			}
+
+			.file:not(:last-child) {
+				border-bottom: 1px lightgray solid;
 			}
 
 			.fname {
@@ -129,12 +127,10 @@ func compileTemplate(m map[string]Item) ([]byte, error) {
 	</head>
 	<body>
 		{{range $v := .}}
-			<a href="{{$v.URL}}">
-				<div class="file">
-					<div class="fname">{{$v.Name}}</div>
-					<div class="size">{{$v.SizeString}}</div>
-					<div class="date">{{$v.DateString}}</div>
-				</div>
+			<a class="file" href="{{$v.URL}}">
+				<div class="fname">{{$v.Name}}</div>
+				<div class="size">{{$v.SizeString}}</div>
+				<div class="date">{{$v.DateString}}</div>
 			</a>
 		{{end}}
 	</body>
