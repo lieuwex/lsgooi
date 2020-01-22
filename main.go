@@ -2,17 +2,12 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"io/ioutil"
 	"log"
 	"lsgooi/types"
 	"lsgooi/webdav"
 	"net/http"
-	"path"
 	"sort"
-	"strings"
 	"text/template"
-	"time"
 )
 
 const (
@@ -25,44 +20,6 @@ var (
 	state         State
 	webdavHandler = webdav.MakeHandler(dir)
 )
-
-// readItems reads the given gooi files directory for items, if prev is non-nil
-// it will be used as a cache for existing files. If a file is removed from the
-// directory it isn't included in the result, even if prev does contain it.
-func readItems(dir string, prev map[string]types.Item) (map[string]types.Item, error) {
-	files, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	m := make(map[string]types.Item)
-	for _, f := range files {
-		if strings.HasSuffix(f.Name(), "-fname") || f.Name() == "startid" {
-			continue
-		}
-
-		id := f.Name()
-
-		if val, has := prev[id]; has {
-			m[id] = val
-			continue
-		}
-
-		fname, err := ioutil.ReadFile(path.Join(dir, id+"-fname"))
-		if err != nil {
-			return m, err
-		}
-
-		m[id] = types.Item{
-			ID:   id,
-			Name: strings.TrimSpace(string(fname)),
-			Size: uint64(f.Size()),
-			Date: f.ModTime(),
-			URL:  fmt.Sprintf(urlfmt, id, fname),
-		}
-	}
-	return m, nil
-}
 
 func compileTemplate(m map[string]types.Item) ([]byte, error) {
 	items := make([]types.Item, 0, len(m))
@@ -131,45 +88,22 @@ func compileTemplate(m map[string]types.Item) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// updateTemplate checks whether or not the template should be updated, and
-// updates if necessary.
-func updateTemplate() {
-	if !state.MustCheck() {
-		return
-	}
-
-	itemMap, err := readItems(dir, state.itemMap)
-	if err != nil {
-		panic(err)
-	}
-
-	state.lastCheckTime = time.Now()
-
-	oldLen := len(state.itemMap)
-	newLen := len(itemMap)
-	if oldLen != newLen {
-		log.Printf("read %d new file(s)", newLen-oldLen)
-
-		state.itemMap = itemMap
-		state.tpl, err = compileTemplate(itemMap)
-		if err != nil {
-			panic(err)
-		}
-		webdavHandler.Refresh(state.itemMap)
-	}
-}
-
 func root(w http.ResponseWriter, r *http.Request) {
-	updateTemplate()
+	state.Update()
 	w.Write(state.tpl)
 }
 
+func webdavfn(w http.ResponseWriter, r *http.Request) {
+	state.Update()
+	webdavHandler.ServeHTTP(w, r)
+}
+
 func main() {
-	updateTemplate()
+	state.Update()
 
 	// set http handlers
 	http.HandleFunc("/", root)
-	http.Handle("/webdav/", webdavHandler)
+	http.HandleFunc("/webdav/", webdavfn)
 	log.Printf("listening on %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
