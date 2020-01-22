@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"lsgooi/types"
+	"lsgooi/webdav"
 	"net/http"
 	"path"
 	"sort"
 	"strings"
 	"text/template"
 	"time"
-
-	"github.com/dustin/go-humanize"
 )
 
 const (
@@ -21,38 +21,21 @@ const (
 	urlfmt = "https://f.lieuwe.xyz/vang/%s/%s"
 )
 
-// Item represents an gooid item on disk.
-type Item struct {
-	ID   string
-	Name string
-	Size uint64
-	Date time.Time
-	URL  string
-}
-
-// SizeString returns the size of the current item in a human friendly format.
-func (item Item) SizeString() string {
-	return humanize.Bytes(item.Size)
-}
-
-// DateString returns the modification date of the current item in a human and
-// machine friendly format.
-func (item Item) DateString() string {
-	return item.Date.Format("2006-01-02 15:04:05")
-}
-
-var state State
+var (
+	state         State
+	webdavHandler = webdav.MakeHandler(dir)
+)
 
 // readItems reads the given gooi files directory for items, if prev is non-nil
 // it will be used as a cache for existing files. If a file is removed from the
 // directory it isn't included in the result, even if prev does contain it.
-func readItems(dir string, prev map[string]Item) (map[string]Item, error) {
+func readItems(dir string, prev map[string]types.Item) (map[string]types.Item, error) {
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	m := make(map[string]Item)
+	m := make(map[string]types.Item)
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), "-fname") || f.Name() == "startid" {
 			continue
@@ -70,7 +53,7 @@ func readItems(dir string, prev map[string]Item) (map[string]Item, error) {
 			return m, err
 		}
 
-		m[id] = Item{
+		m[id] = types.Item{
 			ID:   id,
 			Name: strings.TrimSpace(string(fname)),
 			Size: uint64(f.Size()),
@@ -81,8 +64,8 @@ func readItems(dir string, prev map[string]Item) (map[string]Item, error) {
 	return m, nil
 }
 
-func compileTemplate(m map[string]Item) ([]byte, error) {
-	items := make([]Item, 0, len(m))
+func compileTemplate(m map[string]types.Item) ([]byte, error) {
+	items := make([]types.Item, 0, len(m))
 	for _, v := range m {
 		items = append(items, v)
 	}
@@ -172,6 +155,7 @@ func updateTemplate() {
 		if err != nil {
 			panic(err)
 		}
+		webdavHandler.Refresh(state.itemMap)
 	}
 }
 
@@ -181,8 +165,11 @@ func root(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	updateTemplate()
+
 	// set http handlers
 	http.HandleFunc("/", root)
+	http.Handle("/webdav/", webdavHandler)
 	log.Printf("listening on %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

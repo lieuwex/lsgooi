@@ -1,13 +1,16 @@
 package main
 
-import "time"
+import (
+	"lsgooi/types"
+	"time"
+)
 
 // State contains all the state of the program
 type State struct {
 	// tpl contains the current compiled version of the page.
 	tpl []byte
 	// itemMap contains the currently known id to item mapping
-	itemMap map[string]Item
+	itemMap map[string]types.Item
 	// lastCheckTime is the time the dir was last checked of new files
 	lastCheckTime time.Time
 }
