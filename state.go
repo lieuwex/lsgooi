@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"lsgooi/types"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -76,7 +77,9 @@ func readItems(dir string, prev map[string]types.Item) (map[string]types.Item, e
 		}
 
 		fname, err := ioutil.ReadFile(path.Join(dir, id+"-fname"))
-		if err != nil {
+		if err == os.ErrNotExist {
+			continue
+		} else if err != nil {
 			return m, err
 		}
 
